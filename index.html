@@ -2234,19 +2234,20 @@ function init() {
   let initialLoadDone = false;
   fbDB.ref('cafeosDB').on('value', snap => {
     const data = snap.val();
+
     if (data) {
-      const fbResetTime = data._resetTime || 0;
-      const localResetTime = parseInt(localStorage.getItem('cafeosResetTime') || '0', 10);
-      if (fbResetTime >= localResetTime) {
-        if (fbResetTime > localResetTime) {
-          try { localStorage.setItem('cafeosResetTime', String(fbResetTime)); } catch(e) {}
-        }
-        const { currentOrder, _saveId, _resetTime, ...safeData } = data;
-        Object.keys(safeData).forEach(k => { if (DB.hasOwnProperty(k)) DB[k] = safeData[k]; });
-        try { localStorage.setItem('cafeosDB', JSON.stringify(DB)); } catch(e) {}
-      }
-      // Kalau localResetTime lebih baru, berarti device ini baru reset tapi Firebase belum update
-      // Jangan overwrite DB, biarkan resetAllData yang kirim ke Firebase
+      // Ada data — load ke DB
+      const { currentOrder, _saveId, _resetTime, ...safeData } = data;
+      Object.keys(safeData).forEach(k => { if (DB.hasOwnProperty(k)) DB[k] = safeData[k]; });
+      try { localStorage.setItem('cafeosDB', JSON.stringify(DB)); } catch(e) {}
+    } else {
+      // Firebase null/kosong (habis di-remove) — reset DB lokal semua device
+      const savedSettings = JSON.parse(JSON.stringify(DB.settings));
+      DB.menus = []; DB.inventory = []; DB.customers = []; DB.employees = [];
+      DB.orders = []; DB.expenses = []; DB.assets = []; DB.debts = [];
+      DB.shifts = []; DB.activeShift = null; DB.staffLogs = []; DB.stockLog = [];
+      DB.owners = []; DB.settings = savedSettings;
+      try { localStorage.setItem('cafeosDB', JSON.stringify(DB)); } catch(e) {}
     }
 
     if (!initialLoadDone) {
@@ -3012,25 +3013,23 @@ function resetAllData() {
   // Simpan ke localStorage
   try { localStorage.setItem('cafeosDB', JSON.stringify(DB)); } catch(e) {}
 
-  // Reset isSaving & fbSaveTimeout agar tidak diblokir, lalu langsung kirim ke Firebase
+  // Stop semua pending save
   isSaving = false;
   clearTimeout(fbSaveTimeout);
-  const thisSaveId = Date.now() + '_reset_' + Math.random().toString(36).slice(2, 7);
-  myLastSaveId = thisSaveId;
-  const resetTime = Date.now();
-  // Simpan waktu reset ke localStorage & Firebase agar semua device tahu
-  try { localStorage.setItem('cafeosResetTime', String(resetTime)); } catch(e) {}
-  const { currentOrder, ...dataToSave } = DB;
-  dataToSave._saveId = thisSaveId;
-  dataToSave._resetTime = resetTime;
-  fbDB.ref('cafeosDB').set(dataToSave)
-    .then(() => {
-      showToast('Semua data berhasil dihapus & tersync ke semua device!', 'success');
-    })
-    .catch(e => {
-      console.warn('Firebase reset error:', e);
-      showToast('Data dihapus, tapi gagal sync ke Firebase. Cek koneksi!', 'error');
-    });
+
+  // Hapus node Firebase dulu, lalu tulis data bersih
+  fbDB.ref('cafeosDB').remove().then(() => {
+    const thisSaveId = Date.now() + '_reset_' + Math.random().toString(36).slice(2, 7);
+    myLastSaveId = thisSaveId;
+    const { currentOrder, ...dataToSave } = DB;
+    dataToSave._saveId = thisSaveId;
+    return fbDB.ref('cafeosDB').set(dataToSave);
+  }).then(() => {
+    showToast('Semua data berhasil dihapus & tersync!', 'success');
+  }).catch(e => {
+    console.warn('Firebase reset error:', e);
+    showToast('Data dihapus, tapi gagal sync ke Firebase. Cek koneksi!', 'error');
+  });
 
   // Re-render all pages
   try {
