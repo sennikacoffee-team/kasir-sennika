@@ -741,8 +741,8 @@ textarea { resize: vertical; min-height: 80px; }
         else if (currentPage === 'assets') renderAssets && renderAssets();
         else if (currentPage === 'employees') renderEmployees && renderEmployees();
         else if (currentPage === 'owners') renderOwners && renderOwners();
-        else if (currentPage === 'shift') renderShiftPage && renderShiftPage();
-        else if (currentPage === 'stafflog') renderStaffLog && renderStaffLog();
+        else if (currentPage === 'shift') { renderShiftPage && renderShiftPage(); renderStaffLog && renderStaffLog(); }
+        else if (currentPage === 'stafflog') { renderShiftPage && renderShiftPage(); renderStaffLog && renderStaffLog(); }
         else if (currentPage === 'pos') { renderMenu && renderMenu(); renderCatTabs && renderCatTabs(); }
       }
     } catch(e) {}
@@ -849,11 +849,8 @@ textarea { resize: vertical; min-height: 80px; }
       <span class="nav-icon"></span> Kasir (POS)
     </div>
     <div class="nav-item" onclick="navTo('shift')" id="nav-shift">
-      <span class="nav-icon"></span> Shift
+      <span class="nav-icon">👥</span> Shift & Kehadiran
       <span id="shift-status-badge" style="margin-left:auto; font-size:9px; font-weight:700; padding:2px 6px; border-radius:99px; background:var(--redDim); color:var(--red);">OFF</span>
-    </div>
-    <div class="nav-item" onclick="navTo('stafflog')" id="nav-stafflog">
-      <span class="nav-icon"></span> Log Kehadiran
     </div>
     <div class="nav-item" onclick="navTo('orders')" id="nav-orders">
       <span class="nav-icon"></span> Riwayat Order
@@ -1345,7 +1342,7 @@ textarea { resize: vertical; min-height: 80px; }
       <!-- ═══ SHIFT ═══ -->
       <div class="page" id="page-shift">
         <div class="page-header">
-          <div><h2>Manajemen Shift</h2><p>Catat pembukaan dan penutupan shift kasir</p></div>
+          <div><h2>Shift & Kehadiran</h2><p>Manajemen shift kasir dan log kehadiran staff</p></div>
           <div style="display:flex; gap:8px;">
             <button class="btn btn-gold" id="btn-start-shift" onclick="openStartShift()">▶ Starting Shift</button>
             <button class="btn btn-red" id="btn-close-shift" onclick="openCloseShift()" style="display:none;">■ Closing Shift</button>
@@ -1378,7 +1375,7 @@ textarea { resize: vertical; min-height: 80px; }
             <div class="metric"><div class="metric-label">Non-Cash</div><div class="metric-val" id="shift-live-noncash">Rp 0</div></div>
           </div>
         </div>
-        <div class="card">
+        <div class="card" style="margin-bottom:20px;">
           <div class="card-title">Riwayat Shift</div>
           <div class="table-wrap">
             <table>
@@ -1392,25 +1389,19 @@ textarea { resize: vertical; min-height: 80px; }
             </table>
           </div>
         </div>
-      </div>
 
-      <!-- ═══ STAFF LOG KEHADIRAN ═══ -->
-      <div class="page" id="page-stafflog">
-        <div class="page-header">
-          <div><h2>Log Kehadiran Staff</h2><p>Rekap clock-in & clock-out harian per karyawan</p></div>
+        <!-- ═══ LOG KEHADIRAN (gabung di sini) ═══ -->
+        <div class="page-header" style="margin-bottom:16px;">
+          <div><h3 style="font-size:16px; font-weight:700;">Log Kehadiran Staff</h3><p>Rekap clock-in & clock-out harian per karyawan</p></div>
           <div style="display:flex; gap:8px; align-items:center;">
             <input type="date" id="stafflog-filter-date" style="width:160px;" onchange="renderStaffLog()">
             <button class="btn btn-gold btn-sm" onclick="openStaffClockIn()">Clock-In</button>
           </div>
         </div>
-
-        <!-- Live Status Cards -->
         <div id="stafflog-live-cards" style="margin-bottom:20px;">
           <div class="card-title" style="margin-bottom:10px;">Status Staff Hari Ini</div>
           <div id="stafflog-cards-grid" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:12px;"></div>
         </div>
-
-        <!-- Log Table -->
         <div class="card">
           <div class="card-title">Riwayat Log Kehadiran</div>
           <div class="table-wrap">
@@ -2244,9 +2235,18 @@ function init() {
   fbDB.ref('cafeosDB').on('value', snap => {
     const data = snap.val();
     if (data) {
-      const { currentOrder, _saveId, ...safeData } = data;
-      Object.keys(safeData).forEach(k => { if (DB.hasOwnProperty(k)) DB[k] = safeData[k]; });
-      try { localStorage.setItem('cafeosDB', JSON.stringify(DB)); } catch(e) {}
+      const fbResetTime = data._resetTime || 0;
+      const localResetTime = parseInt(localStorage.getItem('cafeosResetTime') || '0', 10);
+      if (fbResetTime >= localResetTime) {
+        if (fbResetTime > localResetTime) {
+          try { localStorage.setItem('cafeosResetTime', String(fbResetTime)); } catch(e) {}
+        }
+        const { currentOrder, _saveId, _resetTime, ...safeData } = data;
+        Object.keys(safeData).forEach(k => { if (DB.hasOwnProperty(k)) DB[k] = safeData[k]; });
+        try { localStorage.setItem('cafeosDB', JSON.stringify(DB)); } catch(e) {}
+      }
+      // Kalau localResetTime lebih baru, berarti device ini baru reset tapi Firebase belum update
+      // Jangan overwrite DB, biarkan resetAllData yang kirim ke Firebase
     }
 
     if (!initialLoadDone) {
@@ -2259,7 +2259,6 @@ function init() {
       document.getElementById('login-screen').classList.remove('hidden');
       document.getElementById('login-cafe-name').textContent = DB.settings.name || 'Kasir Senika';
     } else {
-      // Update dari device lain — skip jika ini echo save kita sendiri
       if (isSaving) return;
       if (data && data._saveId && data._saveId === myLastSaveId) return;
       refreshAllViews();
@@ -2337,8 +2336,8 @@ function navTo(page) {
     pos: 'Kasir (POS)', orders: 'Riwayat Pesanan', inventory: 'Inventori',
     customers: 'Data Pelanggan', dashboard: 'Dashboard Keuangan', hpp: 'HPP & Manajemen Menu',
     expenses: 'Pengeluaran', assets: 'Aset & Hutang', employees: 'Database Karyawan',
-    owners: 'Bagi Hasil Owner', settings: 'Pengaturan', shift: 'Manajemen Shift',
-    stafflog: 'Log Kehadiran Staff'
+    owners: 'Bagi Hasil Owner', settings: 'Pengaturan', shift: 'Shift & Kehadiran',
+    stafflog: 'Shift & Kehadiran'
   };
   document.getElementById('topbar-title').textContent = titles[page] || page;
   currentPage = page;
@@ -2351,8 +2350,7 @@ function navTo(page) {
   if (page === 'assets') renderAssets();
   if (page === 'employees') renderEmployees();
   if (page === 'owners') renderOwners();
-  if (page === 'shift') renderShiftPage();
-  if (page === 'stafflog') renderStaffLog();
+  if (page === 'shift' || page === 'stafflog') { renderShiftPage(); renderStaffLog(); }
   closeSidebar();
 }
 
@@ -3019,8 +3017,12 @@ function resetAllData() {
   clearTimeout(fbSaveTimeout);
   const thisSaveId = Date.now() + '_reset_' + Math.random().toString(36).slice(2, 7);
   myLastSaveId = thisSaveId;
+  const resetTime = Date.now();
+  // Simpan waktu reset ke localStorage & Firebase agar semua device tahu
+  try { localStorage.setItem('cafeosResetTime', String(resetTime)); } catch(e) {}
   const { currentOrder, ...dataToSave } = DB;
   dataToSave._saveId = thisSaveId;
+  dataToSave._resetTime = resetTime;
   fbDB.ref('cafeosDB').set(dataToSave)
     .then(() => {
       showToast('Semua data berhasil dihapus & tersync ke semua device!', 'success');
